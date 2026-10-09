@@ -53,9 +53,10 @@ public class ThermalReactionTests
 
         Run(w, 600);
 
-        // Lava is a heat source, so air never solidifies it. Only a lone drop at the very edge of the
-        // flow, sitting on cold stone, may crust over.
-        Assert.True(w.Count(Mat.Lava) >= lava * 97 / 100, $"{w.Count(Mat.Lava)} of {lava} lava cells still molten");
+        // Lava is a heat source, so air never solidifies it. Only the advancing front of the flow,
+        // spreading thin over the cold floor, may harden into a stone bed under the molten lava.
+        Assert.True(w.Count(Mat.Lava) >= lava * 9 / 10, $"{w.Count(Mat.Lava)} of {lava} lava cells still molten");
+        Assert.All(CellsOf(w, Mat.Stone), c => Assert.True(c.Y >= 28, $"lava hardened away from the floor at {c}"));
         Assert.All(CellsOf(w, Mat.Lava), c => Assert.True(w.TemperatureAt(c.X, c.Y) > 700f));
     }
 

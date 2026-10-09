@@ -16,6 +16,7 @@ public enum Mat : byte
     Steam,
     Lava,
     Ash,
+    Ice,
 }
 
 /// <summary>Decides how a material moves.</summary>
@@ -184,7 +185,7 @@ public static class Materials
             new()
             {
                 Id = Mat.Empty, Name = "空", Phase = Phase.Empty, Color = Background,
-                Conductivity = 0.002f, HeatCapacity = 1f, AmbientRate = 0.05f, SupportsCombustion = true,
+                Conductivity = 0.0005f, HeatCapacity = 1f, AmbientRate = 0.05f, SupportsCombustion = true,
             },
             new()
             {
@@ -203,6 +204,7 @@ public static class Materials
                 Id = Mat.Water, Name = "水", Phase = Phase.Liquid, Density = 1f, Dispersion = 5,
                 Conductivity = 0.4f, HeatCapacity = 8f,
                 HotAbove = 100f, HotInto = Mat.Steam, HotLatent = 300f,
+                ColdBelow = -2f, ColdInto = Mat.Ice, ColdLatent = 45f,
                 Color = new Rgb(0.18f, 0.38f, 0.85f), Jitter = 0.04f,
             },
             new()
@@ -246,8 +248,8 @@ public static class Materials
             new()
             {
                 Id = Mat.Lava, Name = "熔岩", Phase = Phase.Liquid, Density = 2.5f, Dispersion = 2, Fluidity = 0.25f,
-                BaseTemp = 1200f, Conductivity = 0.2f, HeatCapacity = 1f,
-                SourceTemp = 1200f, SourceRate = 0.3f, ColdBelow = 700f, ColdInto = Mat.Stone, FlameChance = 0.02f,
+                BaseTemp = 1200f, Conductivity = 0.02f, HeatCapacity = 1f,
+                SourceTemp = 1200f, SourceRate = 0.03f, ColdBelow = 700f, ColdInto = Mat.Stone, FlameChance = 0.02f,
                 Color = new Rgb(0.95f, 0.35f, 0.05f), Jitter = 0.12f,
             },
             new()
@@ -255,6 +257,14 @@ public static class Materials
                 Id = Mat.Ash, Name = "灰", Phase = Phase.Powder, Density = 0.5f,
                 Conductivity = 0.03f, HeatCapacity = 1f,
                 Color = new Rgb(0.35f, 0.33f, 0.32f), Jitter = 0.1f,
+            },
+            new()
+            {
+                // Painted ice is deep-frozen so a block of it can freeze the water it touches.
+                Id = Mat.Ice, Name = "冰", Phase = Phase.Solid, Density = 0.9f,
+                BaseTemp = -60f, Conductivity = 0.3f, HeatCapacity = 4f,
+                HotAbove = 2f, HotInto = Mat.Water, HotLatent = 45f,
+                Color = new Rgb(0.70f, 0.86f, 0.95f), Jitter = 0.05f,
             },
         };
 
