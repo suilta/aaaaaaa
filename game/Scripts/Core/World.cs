@@ -218,6 +218,13 @@ public sealed class World
             case Phase.Powder:
                 Fall(i, def, x, y);
                 break;
+            case Phase.Liquid:
+                if (!Fall(i, def, x, y))
+                {
+                    Flow(i, def, x, y);
+                }
+
+                break;
         }
     }
 
@@ -234,6 +241,58 @@ public sealed class World
 
         int d = rng.CoinFlip() ? 1 : -1;
         return TryMove(i, def, x + d, ny) || TryMove(i, def, x - d, ny);
+    }
+
+    /// <summary>Sideways liquid flow in a random direction first, then the other.</summary>
+    private bool Flow(int i, MaterialDef def, int x, int y)
+    {
+        int d = rng.CoinFlip() ? 1 : -1;
+        return FlowTo(i, def, x, y, d) || FlowTo(i, def, x, y, -d);
+    }
+
+    /// <summary>
+    /// Walks up to <see cref="MaterialDef.Dispersion"/> cells sideways through empty space,
+    /// stopping early at the first spot where the liquid can fall. Swapping with a lighter
+    /// fluid is only allowed with the adjacent cell so displaced particles never teleport.
+    /// </summary>
+    private bool FlowTo(int i, MaterialDef def, int x, int y, int dir)
+    {
+        int ny = y + Gravity;
+        bool belowInBounds = (uint)ny < (uint)Height;
+        int target = -1;
+        for (int k = 1; k <= def.Dispersion; k++)
+        {
+            int nx = x + dir * k;
+            if ((uint)nx >= (uint)Width)
+            {
+                break;
+            }
+
+            int j = y * Width + nx;
+            if (cells[j] != Mat.Empty)
+            {
+                if (k == 1 && CanEnter(def, j))
+                {
+                    target = j;
+                }
+
+                break;
+            }
+
+            target = j;
+            if (belowInBounds && CanEnter(def, ny * Width + nx))
+            {
+                break;
+            }
+        }
+
+        if (target < 0)
+        {
+            return false;
+        }
+
+        Swap(i, target);
+        return true;
     }
 
     /// <summary>
