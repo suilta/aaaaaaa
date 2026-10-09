@@ -139,7 +139,7 @@ All ten milestones of the first stage are done, one commit each.
 
 Verification:
 
-- `dotnet build` passes with no warnings or errors, and all 57 `dotnet test` tests pass.
+- `dotnet build` passes with no warnings or errors, and all 58 `dotnet test` tests pass.
 - Godot 4.7.2 .NET for Linux builds the project headless (`--build-solutions`).
 - Under Xvfb (Mesa llvmpipe, GL Compatibility), Godot rendered the demo scene with no errors.
 - Measured on the Linux dev container (Release build), not the owner's machine:
@@ -160,11 +160,16 @@ Verification:
 - [ ] After flipping gravity (G), all of the above reverses direction.
 - [ ] Godot's debugger monitors show a steady 60 FPS.
 
+### Design decisions
+
+- **Stone crust on lava pools (intended).** Quenched lava becomes stone, and stone is a solid that
+  never moves. The first lava to reach a pool hardens into a stone crust on the water's surface,
+  and later lava collects on top of it as a lava lake instead of sinking, as in *Noita*. This is
+  kept on purpose because it builds new terrain during play. Steam raining back down can harden
+  more of the lake. `LavaOnWaterFormsAStoneCrustThatHoldsALavaLake` pins this behavior.
+
 ### Behaviors worth knowing
 
-- **Stone crust on lava pools.** Stone is a solid and never moves. The first lava to reach a pool
-  becomes a stone crust on the water's surface, and later lava pools on top of that crust
-  instead of sinking. Steam raining back down can harden more of it.
 - **Lava falls slowly.** `Fluidity` is a per-frame chance to move at all, so viscous lava also
   falls through air at about a quarter of normal speed and drips in a loose stream.
 - **Fire can stall in thin wood.** Fire spreads by chance. A one-cell-thick wooden beam can

@@ -56,6 +56,40 @@ public class LavaTests
         }
     }
 
+    /// <summary>
+    /// Intended mechanic (Noita-style): the first lava to reach water becomes a floating stone crust,
+    /// and later lava pools on top of it as a lava lake instead of sinking.
+    /// </summary>
+    [Fact]
+    public void LavaOnWaterFormsAStoneCrustThatHoldsALavaLake()
+    {
+        var w = new World(40, 60, Seed);
+        StoneBox(w, 0, 0, 39, 59);
+        w.Fill(1, 40, 38, 58, Mat.Water);
+        w.Fill(5, 5, 34, 14, Mat.Lava); // far more lava than one crust row needs
+        int stoneBefore = w.Count(Mat.Stone);
+
+        Run(w, 1500);
+
+        var lava = CellsOf(w, Mat.Lava);
+        var water = CellsOf(w, Mat.Water);
+        Assert.True(lava.Count > 0, "a lava lake should remain on top of the crust");
+        Assert.True(w.Count(Mat.Stone) > stoneBefore, "lava touching water should have hardened into stone");
+        Assert.True(lava.Max(c => c.Y) < water.Min(c => c.Y), "the lava lake sits above the water");
+
+        // Under every lava column there is stone before any water: the crust separates them.
+        foreach (int x in lava.Select(c => c.X).Distinct())
+        {
+            int y = lava.Where(c => c.X == x).Max(c => c.Y) + 1;
+            while (w.Get(x, y) is Mat.Lava or Mat.Empty or Mat.Steam)
+            {
+                y++;
+            }
+
+            Assert.Equal(Mat.Stone, w.Get(x, y));
+        }
+    }
+
     [Fact]
     public void LavaIgnitesFlammableNeighbors()
     {
