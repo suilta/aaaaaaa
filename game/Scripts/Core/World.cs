@@ -59,6 +59,25 @@ public sealed class World
 
     public short LifeAt(int x, int y) => life[y * Width + x];
 
+    public bool IsBurning(int x, int y) => InBounds(x, y) && burn[y * Width + x] > 0;
+
+    /// <summary>Sets a flammable cell on fire. Returns false if it cannot burn or already burns.</summary>
+    public bool Ignite(int x, int y) => InBounds(x, y) && Ignite(y * Width + x);
+
+    public int BurningCount()
+    {
+        int n = 0;
+        foreach (var b in burn)
+        {
+            if (b > 0)
+            {
+                n++;
+            }
+        }
+
+        return n;
+    }
+
     /// <summary>Replaces a cell with a fresh particle of <paramref name="m"/>.</summary>
     public void Set(int x, int y, Mat m)
     {
@@ -111,7 +130,8 @@ public sealed class World
 
     /// <summary>
     /// Paints a round brush. Only fills empty cells; powders, liquids and gases fill
-    /// about 35% of them. <see cref="Mat.Empty"/> erases instead.
+    /// about 35% of them. <see cref="Mat.Empty"/> erases instead. The flame brush also
+    /// ignites the flammable cells it touches.
     /// </summary>
     public void Paint(int cx, int cy, int radius, Mat m)
     {
@@ -132,6 +152,11 @@ public sealed class World
                 if (m == Mat.Empty)
                 {
                     Create(i, Mat.Empty);
+                    continue;
+                }
+
+                if (m == Materials.Flame && Ignite(i))
+                {
                     continue;
                 }
 
@@ -208,6 +233,25 @@ public sealed class World
         clock[i] = stamp;
         var def = Materials.Get(m);
 
+        // 1. Reactions. Each returns false when the particle was consumed or transformed.
+        if (burn[i] > 0 && !UpdateBurning(i, def, x, y))
+        {
+            return;
+        }
+
+        if (def.IsHot && !UpdateHot(i, def, x, y))
+        {
+            return;
+        }
+
+        // 2. Lifetime.
+        if (def.HasLifetime && --life[i] <= 0)
+        {
+            Transform(i, rng.Chance(def.DecayChance) ? def.DecaysInto : Mat.Empty);
+            return;
+        }
+
+        // 3. Movement.
         if (def.Fluidity < 1f && !rng.Chance(def.Fluidity))
         {
             return;
@@ -225,7 +269,146 @@ public sealed class World
                 }
 
                 break;
+            case Phase.Gas:
+                Rise(i, def, x, y);
+                break;
         }
+    }
+
+    // ---------------------------------------------------------------- reactions
+
+    private static readonly (int Dx, int Dy)[] Neighbors4 = { (0, -1), (-1, 0), (1, 0), (0, 1) };
+
+    private static readonly (int Dx, int Dy)[] Neighbors8 =
+    {
+        (-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1),
+    };
+
+    /// <summary>
+    /// A burning cell carries a flame: water puts it out (unless the cell is a liquid, so burning
+    /// oil keeps burning on water), it throws flames upward, spreads fire, and finally burns out.
+    /// </summary>
+    private bool UpdateBurning(int i, MaterialDef def, int x, int y)
+    {
+        if (def.Phase != Phase.Liquid)
+        {
+            int wet = FindExtinguisher(x, y, Neighbors4);
+            if (wet >= 0)
+            {
+                burn[i] = 0;
+                Boil(wet, Materials.Get(Materials.Flame).Heat);
+                return true;
+            }
+        }
+
+        EmitFlame(x, y, def.FlameChance);
+        IgniteNeighbors(x, y);
+
+        if (--burn[i] > 0)
+        {
+            return true;
+        }
+
+        Transform(i, rng.CoinFlip() ? def.BurnsInto : Mat.Empty);
+        return false;
+    }
+
+    /// <summary>
+    /// Hot materials (fire, lava) are quenched by extinguishers and otherwise set their
+    /// surroundings alight. Wispy gases touch with all 8 neighbors, denser phases with 4.
+    /// </summary>
+    private bool UpdateHot(int i, MaterialDef def, int x, int y)
+    {
+        int wet = FindExtinguisher(x, y, def.Phase == Phase.Gas ? Neighbors8 : Neighbors4);
+        if (wet >= 0)
+        {
+            Boil(wet, def.Heat);
+            Transform(i, def.QuenchedInto);
+            return false;
+        }
+
+        IgniteNeighbors(x, y);
+        EmitFlame(x, y, def.FlameChance);
+        return true;
+    }
+
+    private int FindExtinguisher(int x, int y, (int Dx, int Dy)[] offsets)
+    {
+        foreach (var (dx, dy) in offsets)
+        {
+            int nx = x + dx;
+            int ny = y + dy;
+            if (InBounds(nx, ny) && Materials.Get(cells[ny * Width + nx]).Extinguishes)
+            {
+                return ny * Width + nx;
+            }
+        }
+
+        return -1;
+    }
+
+    /// <summary>Something hot touched extinguisher j: it may boil into its BoilsInto.</summary>
+    private void Boil(int j, float chance)
+    {
+        var def = Materials.Get(cells[j]);
+        if (def.BoilsInto != def.Id && rng.Chance(chance))
+        {
+            Transform(j, def.BoilsInto);
+        }
+    }
+
+    private void IgniteNeighbors(int x, int y)
+    {
+        foreach (var (dx, dy) in Neighbors8)
+        {
+            int nx = x + dx;
+            int ny = y + dy;
+            if (!InBounds(nx, ny))
+            {
+                continue;
+            }
+
+            int j = ny * Width + nx;
+            if (burn[j] == 0 && rng.Chance(Materials.Get(cells[j]).Flammability))
+            {
+                Ignite(j);
+            }
+        }
+    }
+
+    private bool Ignite(int i)
+    {
+        var def = Materials.Get(cells[i]);
+        if (!def.IsFlammable || burn[i] > 0)
+        {
+            return false;
+        }
+
+        burn[i] = Math.Max((short)1, def.BurnTicks);
+        return true;
+    }
+
+    /// <summary>Spawns a flame particle in an empty cell on the "up" side (against gravity).</summary>
+    private void EmitFlame(int x, int y, float chance)
+    {
+        if (!rng.Chance(chance))
+        {
+            return;
+        }
+
+        int nx = x + rng.Next(3) - 1;
+        int ny = y - Gravity;
+        if (InBounds(nx, ny) && cells[ny * Width + nx] == Mat.Empty)
+        {
+            Transform(ny * Width + nx, Materials.Flame);
+        }
+    }
+
+    /// <summary>Replaces cell i during a step; the new particle counts as already updated.</summary>
+    private void Transform(int i, Mat m)
+    {
+        Create(i, m);
+        clock[i] = stamp;
     }
 
     // ---------------------------------------------------------------- movement
@@ -241,6 +424,19 @@ public sealed class World
 
         int d = rng.CoinFlip() ? 1 : -1;
         return TryMove(i, def, x + d, ny) || TryMove(i, def, x - d, ny);
+    }
+
+    /// <summary>Gases: straight up, then a random diagonal up, then the other, then drift sideways.</summary>
+    private bool Rise(int i, MaterialDef def, int x, int y)
+    {
+        int ny = y - Gravity;
+        if (TryMove(i, def, x, ny))
+        {
+            return true;
+        }
+
+        int d = rng.CoinFlip() ? 1 : -1;
+        return TryMove(i, def, x + d, ny) || TryMove(i, def, x - d, ny) || TryMove(i, def, x + d, y);
     }
 
     /// <summary>Sideways liquid flow in a random direction first, then the other.</summary>
@@ -370,7 +566,35 @@ public sealed class World
 
         // shade 0..255 maps to a brightness factor of 1 +/- Jitter.
         float k = 1f + def.Jitter * (shade[i] / 127.5f - 1f);
-        return def.Color.Scale(k);
+        Rgb color = def.Color;
+
+        if (def.HasLifetime && (def.AgeColor.HasValue || def.FadesOut))
+        {
+            float remaining = Math.Clamp((float)life[i] / def.LifeMax, 0f, 1f);
+            if (def.AgeColor is Rgb aged)
+            {
+                color = Rgb.Lerp(aged, color, remaining);
+            }
+
+            if (def.FadesOut)
+            {
+                return Rgb.Lerp(Materials.Background, color.Scale(k), remaining);
+            }
+        }
+
+        color = color.Scale(k);
+        if (burn[i] > 0)
+        {
+            // Flicker: hash of cell and frame, so rendering never touches the simulation RNG.
+            uint h = (uint)i * 0x9E3779B1u ^ (uint)Frame * 0x85EBCA77u;
+            h ^= h >> 15;
+            h *= 0x2C1B3C6Du;
+            h ^= h >> 12;
+            float flicker = 0.45f + 0.5f * ((h & 0xFF) / 255f);
+            color = Rgb.Lerp(color, Materials.BurnGlow, flicker);
+        }
+
+        return color;
     }
 
     // ---------------------------------------------------------------- internals

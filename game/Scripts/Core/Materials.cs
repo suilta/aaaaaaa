@@ -9,7 +9,11 @@ public enum Mat : byte
     Stone,
     Sand,
     Water,
+    Wood,
     Oil,
+    Fire,
+    Smoke,
+    Ash,
 }
 
 /// <summary>Decides how a material moves.</summary>
@@ -33,21 +37,10 @@ public sealed class MaterialDef
     public string Name { get; init; } = "";
     public Phase Phase { get; init; }
 
+    // ---- movement
+
     /// <summary>Heavier materials sink below lighter liquids and gases by swapping places.</summary>
     public float Density { get; init; }
-
-    /// <summary>Per-frame chance of catching fire when next to something hot. 0 = not flammable.</summary>
-    public float Flammability { get; init; }
-
-    /// <summary>Frames the material burns once lit.</summary>
-    public short BurnTicks { get; init; }
-
-    /// <summary>What a burnt-out cell becomes (or Empty).</summary>
-    public Mat BurnsInto { get; init; }
-
-    /// <summary>Lifetime range in frames. 0 = permanent.</summary>
-    public short LifeMin { get; init; }
-    public short LifeMax { get; init; }
 
     /// <summary>Max cells a liquid flows sideways per frame.</summary>
     public int Dispersion { get; init; }
@@ -55,13 +48,64 @@ public sealed class MaterialDef
     /// <summary>Per-frame chance to move at all. Low for viscous materials.</summary>
     public float Fluidity { get; init; } = 1f;
 
+    // ---- fire
+
+    /// <summary>Per-frame chance of catching fire when next to something hot. 0 = not flammable.</summary>
+    public float Flammability { get; init; }
+
+    /// <summary>Frames the material burns once lit.</summary>
+    public short BurnTicks { get; init; }
+
+    /// <summary>What a burnt-out cell becomes (the other half of the time it vanishes).</summary>
+    public Mat BurnsInto { get; init; }
+
+    /// <summary>Per-frame chance that the cell, while burning or hot, emits a flame on its "up" side.</summary>
+    public float FlameChance { get; init; }
+
+    /// <summary>
+    /// Hot materials ignite flammable neighbors. Touching an extinguisher quenches them into
+    /// <see cref="QuenchedInto"/>, and the extinguisher boils with this probability.
+    /// </summary>
+    public float Heat { get; init; }
+
+    /// <summary>What a hot material becomes when it touches an extinguisher.</summary>
+    public Mat QuenchedInto { get; init; }
+
+    /// <summary>Puts out fire and quenches hot materials on contact.</summary>
+    public bool Extinguishes { get; init; }
+
+    /// <summary>What an extinguisher turns into when something hot boils it.</summary>
+    public Mat BoilsInto { get; init; }
+
+    // ---- lifetime
+
+    /// <summary>Lifetime range in frames. 0 = permanent. Only gases and fire use it.</summary>
+    public short LifeMin { get; init; }
+    public short LifeMax { get; init; }
+
+    /// <summary>On expiry the cell becomes <see cref="DecaysInto"/> with this chance, otherwise Empty.</summary>
+    public float DecayChance { get; init; }
+    public Mat DecaysInto { get; init; }
+
+    // ---- looks
+
     public Rgb Color { get; init; }
 
     /// <summary>Random brightness variation, as a fraction of the base color.</summary>
     public float Jitter { get; init; }
 
+    /// <summary>If set, the color shifts from <see cref="Color"/> toward this as lifetime runs out.</summary>
+    public Rgb? AgeColor { get; init; }
+
+    /// <summary>If true, the particle fades into the background as its lifetime runs out.</summary>
+    public bool FadesOut { get; init; }
+
+    // ---- derived
+
     public bool IsLoose => Phase is Phase.Powder or Phase.Liquid or Phase.Gas;
     public bool IsFluid => Phase is Phase.Liquid or Phase.Gas;
+    public bool IsFlammable => Flammability > 0f;
+    public bool IsHot => Heat > 0f;
     public bool HasLifetime => LifeMax > 0;
 }
 
@@ -69,6 +113,12 @@ public sealed class MaterialDef
 public static class Materials
 {
     public static readonly Rgb Background = new(0.05f, 0.05f, 0.08f);
+
+    /// <summary>Color burning cells flicker toward.</summary>
+    public static readonly Rgb BurnGlow = new(1f, 0.55f, 0.1f);
+
+    /// <summary>The particle burning cells emit, and the material the fire brush paints.</summary>
+    public const Mat Flame = Mat.Fire;
 
     private static readonly MaterialDef[] Table = Build();
 
@@ -97,12 +147,38 @@ public static class Materials
             new()
             {
                 Id = Mat.Water, Name = "水", Phase = Phase.Liquid, Density = 1f, Dispersion = 5,
+                Extinguishes = true, BoilsInto = Mat.Water,
                 Color = new Rgb(0.18f, 0.38f, 0.85f), Jitter = 0.04f,
             },
             new()
             {
+                Id = Mat.Wood, Name = "木", Phase = Phase.Solid, Density = 1.2f,
+                Flammability = 0.02f, BurnTicks = 180, BurnsInto = Mat.Ash, FlameChance = 0.25f,
+                Color = new Rgb(0.45f, 0.28f, 0.12f), Jitter = 0.1f,
+            },
+            new()
+            {
                 Id = Mat.Oil, Name = "油", Phase = Phase.Liquid, Density = 0.8f, Dispersion = 3, Fluidity = 0.9f,
+                Flammability = 0.25f, BurnTicks = 45, BurnsInto = Mat.Smoke, FlameChance = 0.4f,
                 Color = new Rgb(0.28f, 0.20f, 0.10f), Jitter = 0.06f,
+            },
+            new()
+            {
+                Id = Mat.Fire, Name = "火", Phase = Phase.Gas, Density = 0.01f, Fluidity = 0.7f,
+                Heat = 0.3f, QuenchedInto = Mat.Empty,
+                LifeMin = 15, LifeMax = 40, DecayChance = 0.25f, DecaysInto = Mat.Smoke,
+                Color = new Rgb(1f, 0.9f, 0.3f), AgeColor = new Rgb(0.85f, 0.15f, 0.05f), Jitter = 0.1f,
+            },
+            new()
+            {
+                Id = Mat.Smoke, Name = "烟", Phase = Phase.Gas, Density = 0.1f, Fluidity = 0.7f,
+                LifeMin = 150, LifeMax = 300,
+                Color = new Rgb(0.30f, 0.30f, 0.32f), Jitter = 0.08f, FadesOut = true,
+            },
+            new()
+            {
+                Id = Mat.Ash, Name = "灰", Phase = Phase.Powder, Density = 0.5f,
+                Color = new Rgb(0.35f, 0.33f, 0.32f), Jitter = 0.1f,
             },
         };
 
