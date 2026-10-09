@@ -53,6 +53,46 @@ public class LiquidTests
         Assert.True(highestSand > lowestWater - 3, "sand should be at the bottom of the pool");
     }
 
+    [Theory]
+    [InlineData(Seed)]
+    [InlineData(7)]
+    [InlineData(8)]
+    public void OilEndsUpAboveAllWater(int seed)
+    {
+        var w = new World(32, 42, seed);
+        StoneBox(w, 0, 0, 31, 41);
+        // Worst case: oil at the bottom, water poured on top. Whole rows so layers can be exact.
+        w.Fill(1, 31, 30, 40, Mat.Oil);
+        w.Fill(1, 16, 30, 30, Mat.Water);
+        int oil = w.Count(Mat.Oil);
+        int water = w.Count(Mat.Water);
+
+        Run(w, 1500);
+
+        Assert.Equal(oil, w.Count(Mat.Oil));
+        Assert.Equal(water, w.Count(Mat.Water));
+        int lowestOil = CellsOf(w, Mat.Oil).Max(c => c.Y);
+        int highestWater = CellsOf(w, Mat.Water).Min(c => c.Y);
+        Assert.True(lowestOil < highestWater, $"oil reaches row {lowestOil}, water starts at row {highestWater}");
+    }
+
+    [Fact]
+    public void SandSinksThroughOilAndWater()
+    {
+        var w = new World(20, 40, Seed);
+        StoneBox(w, 0, 0, 19, 39);
+        w.Fill(1, 30, 18, 38, Mat.Water);
+        w.Fill(1, 25, 18, 29, Mat.Oil);
+        w.Fill(1, 10, 18, 10, Mat.Sand);
+
+        Run(w, 500);
+
+        foreach (var (x, y) in CellsOf(w, Mat.Sand))
+        {
+            Assert.Equal(38, y);
+        }
+    }
+
     [Fact]
     public void SandAndWaterConserveMassOver1000Steps()
     {

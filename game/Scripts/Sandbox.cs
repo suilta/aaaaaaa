@@ -12,7 +12,7 @@ public partial class Sandbox : Node2D
     // Number keys 1..N select these.
     private static readonly Mat[] Palette =
     {
-        Mat.Stone, Mat.Sand, Mat.Water,
+        Mat.Stone, Mat.Sand, Mat.Water, Mat.Oil,
     };
 
     private World world = null!;

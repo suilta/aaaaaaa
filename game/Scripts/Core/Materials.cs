@@ -9,6 +9,7 @@ public enum Mat : byte
     Stone,
     Sand,
     Water,
+    Oil,
 }
 
 /// <summary>Decides how a material moves.</summary>
@@ -97,6 +98,11 @@ public static class Materials
             {
                 Id = Mat.Water, Name = "水", Phase = Phase.Liquid, Density = 1f, Dispersion = 5,
                 Color = new Rgb(0.18f, 0.38f, 0.85f), Jitter = 0.04f,
+            },
+            new()
+            {
+                Id = Mat.Oil, Name = "油", Phase = Phase.Liquid, Density = 0.8f, Dispersion = 3, Fluidity = 0.9f,
+                Color = new Rgb(0.28f, 0.20f, 0.10f), Jitter = 0.06f,
             },
         };
 
