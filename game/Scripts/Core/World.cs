@@ -55,6 +55,7 @@ public sealed class World
 
     public bool InBounds(int x, int y) => (uint)x < (uint)Width && (uint)y < (uint)Height;
 
+    /// <summary>Material at (x, y). Outside the grid reads as stone: the edges behave like walls.</summary>
     public Mat Get(int x, int y) => InBounds(x, y) ? cells[y * Width + x] : Mat.Stone;
 
     public short LifeAt(int x, int y) => life[y * Width + x];

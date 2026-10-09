@@ -1,0 +1,33 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Sandbox", "game\Sandbox.csproj", "{962A41C5-8BFB-43C6-AC1F-EC52C34AC8FA}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{EDEB10FC-5460-4C68-8F9A-09C38C436889}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Sandbox.Tests", "tests\Sandbox.Tests\Sandbox.Tests.csproj", "{22B8D0D3-3945-460D-AE8F-3C5975F67E04}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{962A41C5-8BFB-43C6-AC1F-EC52C34AC8FA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{962A41C5-8BFB-43C6-AC1F-EC52C34AC8FA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{962A41C5-8BFB-43C6-AC1F-EC52C34AC8FA}.Release|Any CPU.ActiveCfg = Debug|Any CPU
+		{962A41C5-8BFB-43C6-AC1F-EC52C34AC8FA}.Release|Any CPU.Build.0 = Debug|Any CPU
+		{22B8D0D3-3945-460D-AE8F-3C5975F67E04}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{22B8D0D3-3945-460D-AE8F-3C5975F67E04}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{22B8D0D3-3945-460D-AE8F-3C5975F67E04}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{22B8D0D3-3945-460D-AE8F-3C5975F67E04}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{22B8D0D3-3945-460D-AE8F-3C5975F67E04} = {EDEB10FC-5460-4C68-8F9A-09C38C436889}
+	EndGlobalSection
+EndGlobal
