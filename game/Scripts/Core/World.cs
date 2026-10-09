@@ -104,12 +104,185 @@ public sealed class World
         return n;
     }
 
+    // ---------------------------------------------------------------- brush
+
+    /// <summary>Fraction of cells a loose-material brush fills, for a natural scattered look.</summary>
+    public const float LooseFillChance = 0.35f;
+
+    /// <summary>
+    /// Paints a round brush. Only fills empty cells; powders, liquids and gases fill
+    /// about 35% of them. <see cref="Mat.Empty"/> erases instead.
+    /// </summary>
+    public void Paint(int cx, int cy, int radius, Mat m)
+    {
+        var def = Materials.Get(m);
+        int r2 = radius * radius + radius; // slightly rounder small brushes
+        for (int y = cy - radius; y <= cy + radius; y++)
+        {
+            for (int x = cx - radius; x <= cx + radius; x++)
+            {
+                int dx = x - cx;
+                int dy = y - cy;
+                if (dx * dx + dy * dy > r2 || !InBounds(x, y))
+                {
+                    continue;
+                }
+
+                int i = y * Width + x;
+                if (m == Mat.Empty)
+                {
+                    Create(i, Mat.Empty);
+                    continue;
+                }
+
+                if (cells[i] != Mat.Empty || (def.IsLoose && !rng.Chance(LooseFillChance)))
+                {
+                    continue;
+                }
+
+                Create(i, m);
+                clock[i] = 0;
+            }
+        }
+    }
+
+    /// <summary>Paints brush stamps along a segment so fast mouse strokes stay continuous.</summary>
+    public void PaintLine(int x0, int y0, int x1, int y1, int radius, Mat m)
+    {
+        int dx = x1 - x0;
+        int dy = y1 - y0;
+        int dist = Math.Max(Math.Abs(dx), Math.Abs(dy));
+        int spacing = Math.Max(1, radius);
+        int steps = Math.Max(1, (dist + spacing - 1) / spacing);
+        for (int s = 0; s <= steps; s++)
+        {
+            float t = (float)s / steps;
+            Paint((int)MathF.Round(x0 + dx * t), (int)MathF.Round(y0 + dy * t), radius, m);
+        }
+    }
+
     // ---------------------------------------------------------------- simulation
+
+    /// <summary>Gravity direction along y: +1 pulls down, -1 pulls up.</summary>
+    public int Gravity { get; private set; } = 1;
 
     public void Step()
     {
         Frame++;
         stamp = (byte)(stamp == 255 ? 1 : stamp + 1);
+
+        // Scan from the gravity-side bottom so falling particles move one cell per step
+        // without being visited again; the clock stops anything that moves "ahead" of the scan.
+        int g = Gravity;
+        int yStart = g > 0 ? Height - 1 : 0;
+        int yEnd = g > 0 ? -1 : Height;
+        for (int y = yStart; y != yEnd; y -= g)
+        {
+            // Random horizontal direction per row so liquids do not drift to one side.
+            if (rng.CoinFlip())
+            {
+                for (int x = 0; x < Width; x++)
+                {
+                    UpdateCell(x, y);
+                }
+            }
+            else
+            {
+                for (int x = Width - 1; x >= 0; x--)
+                {
+                    UpdateCell(x, y);
+                }
+            }
+        }
+    }
+
+    private void UpdateCell(int x, int y)
+    {
+        int i = y * Width + x;
+        Mat m = cells[i];
+        if (m == Mat.Empty || clock[i] == stamp)
+        {
+            return;
+        }
+
+        clock[i] = stamp;
+        var def = Materials.Get(m);
+
+        if (def.Fluidity < 1f && !rng.Chance(def.Fluidity))
+        {
+            return;
+        }
+
+        switch (def.Phase)
+        {
+            case Phase.Powder:
+                Fall(i, def, x, y);
+                break;
+        }
+    }
+
+    // ---------------------------------------------------------------- movement
+
+    /// <summary>Straight down, then a random diagonal, then the other diagonal ("down" = y + g).</summary>
+    private bool Fall(int i, MaterialDef def, int x, int y)
+    {
+        int ny = y + Gravity;
+        if (TryMove(i, def, x, ny))
+        {
+            return true;
+        }
+
+        int d = rng.CoinFlip() ? 1 : -1;
+        return TryMove(i, def, x + d, ny) || TryMove(i, def, x - d, ny);
+    }
+
+    /// <summary>
+    /// A mover can enter an empty cell, or swap with a lighter liquid or gas.
+    /// Gases only ever move into empty cells.
+    /// </summary>
+    private bool CanEnter(MaterialDef mover, int j)
+    {
+        Mat target = cells[j];
+        if (target == Mat.Empty)
+        {
+            return true;
+        }
+
+        if (mover.Phase == Phase.Gas)
+        {
+            return false;
+        }
+
+        var t = Materials.Get(target);
+        return t.IsFluid && t.Density < mover.Density;
+    }
+
+    private bool TryMove(int i, MaterialDef def, int x, int y)
+    {
+        if (!InBounds(x, y))
+        {
+            return false;
+        }
+
+        int j = y * Width + x;
+        if (!CanEnter(def, j))
+        {
+            return false;
+        }
+
+        Swap(i, j);
+        return true;
+    }
+
+    /// <summary>Swaps two cells with all their per-particle state, and marks both as updated.</summary>
+    private void Swap(int i, int j)
+    {
+        (cells[i], cells[j]) = (cells[j], cells[i]);
+        (life[i], life[j]) = (life[j], life[i]);
+        (burn[i], burn[j]) = (burn[j], burn[i]);
+        (shade[i], shade[j]) = (shade[j], shade[i]);
+        clock[i] = stamp;
+        clock[j] = stamp;
     }
 
     // ---------------------------------------------------------------- rendering
