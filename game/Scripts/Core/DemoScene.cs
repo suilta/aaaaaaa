@@ -43,9 +43,9 @@ public static class DemoScene
         // Right: a lava box sealed by a wooden plug, with a pool of water below.
         s.Fill(230, 15, 232, 55, Mat.Stone);
         s.Fill(288, 15, 290, 55, Mat.Stone);
-        s.Fill(230, 50, 290, 55, Mat.Stone);
-        s.Fill(255, 50, 264, 55, Mat.Wood);    // the plug: thick enough to take several seconds
-        s.Fill(233, 33, 287, 49, Mat.Lava);
+        s.Fill(230, 53, 290, 55, Mat.Stone);
+        s.Fill(255, 53, 264, 55, Mat.Wood);    // the plug burns from its air side, one layer at a time
+        s.Fill(233, 34, 287, 52, Mat.Lava);
 
         s.Fill(222, 118, 224, 169, Mat.Stone);
         s.Fill(296, 118, 298, 169, Mat.Stone);

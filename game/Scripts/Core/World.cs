@@ -28,7 +28,10 @@ public sealed class World
     private readonly Rng rng;
 
     // Per-material thermal properties copied into flat arrays for the conduction hot loop.
-    private static readonly float[] CondOf = BuildTable(d => d.Conductivity);
+    // Contact conductance between two materials is the geometric mean of their conductivities:
+    // two poor conductors barely exchange heat, while a good one (water) dominates its contact
+    // with a poor one (wood). It never exceeds the larger conductivity, which keeps steps stable.
+    private static readonly float[] ContactK = BuildContactTable();
     private static readonly float[] InvCapOf = BuildTable(d => 1f / d.HeatCapacity);
     private static readonly float[] AmbientRateOf = BuildTable(d => d.AmbientRate);
 
@@ -281,21 +284,27 @@ public sealed class World
         clock[i] = stamp;
         var def = Materials.Get(m);
 
-        // 1. Reactions. Each returns false when the particle was consumed or transformed.
-        if (burn[i] > 0 && !UpdateBurning(i, def, x, y))
+        // 1. Reactions, all driven by temperature. Each returns false when the particle was transformed.
+        if (!UpdateThermalPhase(i, def))
         {
             return;
         }
 
-        if (def.IsHot && !UpdateHot(i, def, x, y))
+        if (def.IsFlammable && !UpdateCombustion(i, def, x, y))
         {
             return;
+        }
+
+        if (def.IsHeatSource)
+        {
+            temp[i] += (def.SourceTemp - temp[i]) * def.SourceRate;
+            EmitFlame(x, y, def.FlameChance);
         }
 
         // 2. Lifetime.
         if (def.HasLifetime && --life[i] <= 0)
         {
-            Transform(i, rng.Chance(def.DecayChance) ? def.DecaysInto : Mat.Empty);
+            Transform(i, rng.Chance(def.DecayChance) ? def.DecaysInto : Mat.Empty, keepTemp: true);
             return;
         }
 
@@ -325,105 +334,86 @@ public sealed class World
 
     // ---------------------------------------------------------------- reactions
 
-    private static readonly (int Dx, int Dy)[] Neighbors4 = { (0, -1), (-1, 0), (1, 0), (0, 1) };
-
-    private static readonly (int Dx, int Dy)[] Neighbors8 =
-    {
-        (-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1),
-    };
-
     /// <summary>
-    /// A burning cell carries a flame: water puts it out (unless the cell is a liquid, so burning
-    /// oil keeps burning on water), it throws flames upward, spreads fire, and finally burns out.
+    /// Boiling, melting, solidifying, freezing, going out. Past a threshold the cell is held at it
+    /// and changes form with chance (excess ÷ latent heat); the new material keeps the heat.
     /// </summary>
-    private bool UpdateBurning(int i, MaterialDef def, int x, int y)
+    private bool UpdateThermalPhase(int i, MaterialDef def)
     {
-        if (def.Phase != Phase.Liquid)
+        float t = temp[i];
+        if (t > def.HotAbove)
         {
-            int wet = FindExtinguisher(x, y, Neighbors4);
-            if (wet >= 0)
+            temp[i] = def.HotAbove;
+            if (def.HotLatent <= 0f || rng.Chance((t - def.HotAbove) / def.HotLatent))
             {
-                burn[i] = 0;
-                Boil(wet, Materials.Get(Materials.Flame).Heat);
-                return true;
+                Transform(i, def.HotInto, keepTemp: true);
+                return false;
+            }
+        }
+        else if (t < def.ColdBelow)
+        {
+            temp[i] = def.ColdBelow;
+            if (def.ColdLatent <= 0f || rng.Chance((def.ColdBelow - t) / def.ColdLatent))
+            {
+                Transform(i, def.ColdInto, keepTemp: true);
+                return false;
             }
         }
 
-        EmitFlame(x, y, def.FlameChance);
-        IgniteNeighbors(x, y);
+        return true;
+    }
 
+    /// <summary>
+    /// Flammable cells catch fire once hot enough. While it touches air, a burning cell heats itself,
+    /// throws flames upward and burns down; smothered, it only smoulders. Anything that cools it
+    /// below its ignition point (water) puts it out. Fire spreads purely through conducted heat.
+    /// </summary>
+    private bool UpdateCombustion(int i, MaterialDef def, int x, int y)
+    {
+        if (burn[i] == 0)
+        {
+            if (temp[i] >= def.IgnitionTemp && rng.Chance(def.Flammability))
+            {
+                burn[i] = Math.Max((short)1, def.BurnTicks);
+            }
+
+            return true;
+        }
+
+        if (temp[i] < def.IgnitionTemp)
+        {
+            burn[i] = 0;
+            return true;
+        }
+
+        if (!TouchesAir(x, y))
+        {
+            return true;
+        }
+
+        if (temp[i] < def.BurnTemp)
+        {
+            temp[i] = Math.Min(def.BurnTemp, temp[i] + def.BurnHeat);
+        }
+
+        EmitFlame(x, y, def.FlameChance);
         if (--burn[i] > 0)
         {
             return true;
         }
 
-        Transform(i, rng.CoinFlip() ? def.BurnsInto : Mat.Empty);
+        Transform(i, rng.CoinFlip() ? def.BurnsInto : Mat.Empty, keepTemp: true);
         return false;
     }
 
-    /// <summary>
-    /// Hot materials (fire, lava) are quenched by extinguishers and otherwise set their
-    /// surroundings alight. Wispy gases touch with all 8 neighbors, denser phases with 4.
-    /// </summary>
-    private bool UpdateHot(int i, MaterialDef def, int x, int y)
-    {
-        int wet = FindExtinguisher(x, y, def.Phase == Phase.Gas ? Neighbors8 : Neighbors4);
-        if (wet >= 0)
-        {
-            Boil(wet, def.Heat);
-            Transform(i, def.QuenchedInto);
-            return false;
-        }
+    private bool TouchesAir(int x, int y) =>
+        SupportsCombustion(x, y - 1) || SupportsCombustion(x - 1, y) ||
+        SupportsCombustion(x + 1, y) || SupportsCombustion(x, y + 1);
 
-        IgniteNeighbors(x, y);
-        EmitFlame(x, y, def.FlameChance);
-        return true;
-    }
+    private bool SupportsCombustion(int x, int y) =>
+        InBounds(x, y) && Materials.Get(cells[y * Width + x]).SupportsCombustion;
 
-    private int FindExtinguisher(int x, int y, (int Dx, int Dy)[] offsets)
-    {
-        foreach (var (dx, dy) in offsets)
-        {
-            int nx = x + dx;
-            int ny = y + dy;
-            if (InBounds(nx, ny) && Materials.Get(cells[ny * Width + nx]).Extinguishes)
-            {
-                return ny * Width + nx;
-            }
-        }
-
-        return -1;
-    }
-
-    /// <summary>Something hot touched extinguisher j: it may boil into its BoilsInto.</summary>
-    private void Boil(int j, float chance)
-    {
-        var def = Materials.Get(cells[j]);
-        if (def.BoilsInto != def.Id && rng.Chance(chance))
-        {
-            Transform(j, def.BoilsInto);
-        }
-    }
-
-    private void IgniteNeighbors(int x, int y)
-    {
-        foreach (var (dx, dy) in Neighbors8)
-        {
-            int nx = x + dx;
-            int ny = y + dy;
-            if (!InBounds(nx, ny))
-            {
-                continue;
-            }
-
-            int j = ny * Width + nx;
-            if (burn[j] == 0 && rng.Chance(Materials.Get(cells[j]).Flammability))
-            {
-                Ignite(j);
-            }
-        }
-    }
-
+    /// <summary>Lights cell i as if by a flame: brings it above its ignition point and starts the burn.</summary>
     private bool Ignite(int i)
     {
         var def = Materials.Get(cells[i]);
@@ -432,6 +422,7 @@ public sealed class World
             return false;
         }
 
+        temp[i] = Math.Max(temp[i], def.IgnitionTemp + 50f);
         burn[i] = Math.Max((short)1, def.BurnTicks);
         return true;
     }
@@ -452,10 +443,19 @@ public sealed class World
         }
     }
 
-    /// <summary>Replaces cell i during a step; the new particle counts as already updated.</summary>
-    private void Transform(int i, Mat m)
+    /// <summary>
+    /// Replaces cell i during a step; the new particle counts as already updated. With
+    /// <paramref name="keepTemp"/> it keeps the old particle's heat (matter changing form).
+    /// </summary>
+    private void Transform(int i, Mat m, bool keepTemp = false)
     {
+        float t = temp[i];
         Create(i, m);
+        if (keepTemp)
+        {
+            temp[i] = t;
+        }
+
         clock[i] = stamp;
     }
 
@@ -477,15 +477,14 @@ public sealed class World
             {
                 int i = row + x;
                 int mi = (int)cells[i];
-                float ci = CondOf[mi];
                 if (x + 1 < w)
                 {
-                    Exchange(i, i + 1, mi, ci);
+                    Exchange(i, i + 1, mi);
                 }
 
                 if (y + 1 < Height)
                 {
-                    Exchange(i, i + w, mi, ci);
+                    Exchange(i, i + w, mi);
                 }
             }
         }
@@ -500,7 +499,7 @@ public sealed class World
         }
     }
 
-    private void Exchange(int i, int j, int mi, float ci)
+    private void Exchange(int i, int j, int mi)
     {
         float diff = temp[i] - temp[j];
         if (diff is > -0.01f and < 0.01f)
@@ -509,16 +508,24 @@ public sealed class World
         }
 
         int mj = (int)cells[j];
-        float cj = CondOf[mj];
-        float sum = ci + cj;
-        if (sum <= 0f)
-        {
-            return;
-        }
-
-        float q = 2f * ci * cj / sum * diff; // harmonic-mean conductance
+        float q = ContactK[mi * Materials.Count + mj] * diff;
         temp[i] -= q * InvCapOf[mi];
         temp[j] += q * InvCapOf[mj];
+    }
+
+    private static float[] BuildContactTable()
+    {
+        int n = Materials.Count;
+        var table = new float[n * n];
+        for (int a = 0; a < n; a++)
+        {
+            for (int b = 0; b < n; b++)
+            {
+                table[a * n + b] = MathF.Sqrt(Materials.Get((Mat)a).Conductivity * Materials.Get((Mat)b).Conductivity);
+            }
+        }
+
+        return table;
     }
 
     private static float[] BuildTable(Func<MaterialDef, float> f)

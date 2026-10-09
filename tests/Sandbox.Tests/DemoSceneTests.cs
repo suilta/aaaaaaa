@@ -81,10 +81,11 @@ public class DemoSceneTests
     public void BurningTheWoodenFrameCollapsesTheSandPile()
     {
         var w = Build();
+        // Light the outer faces of both legs, where the wood touches air.
         for (int y = 112; y <= 169; y++)
         {
-            w.Ignite(135, y);
-            w.Ignite(183, y);
+            w.Ignite(134, y);
+            w.Ignite(185, y);
         }
 
         Run(w, 3000);
@@ -98,13 +99,15 @@ public class DemoSceneTests
     {
         var w = Build();
         int water = w.Count(Mat.Water);
+        int oil = w.Count(Mat.Oil);
         w.Paint(50, 118, 3, Mat.Fire);
 
         Run(w, 1200);
 
         // Count only the left pool: the lava pool on the right loses water to steam on its own.
         int leftWater = CellsOf(w, Mat.Water).Count(c => c.X < 110);
-        Assert.True(w.Count(Mat.Oil) < 50, $"{w.Count(Mat.Oil)} oil cells left");
+        // Only stray droplets survive: they cannot gather enough heat on their own to ignite.
+        Assert.True(w.Count(Mat.Oil) < oil / 10, $"{w.Count(Mat.Oil)} of {oil} oil cells left");
         Assert.True(leftWater > 87 * 38 * 9 / 10, $"left pool lost too much water: {leftWater}");
         Assert.True(water > 0);
     }

@@ -52,8 +52,17 @@ public sealed class MaterialDef
 
     // ---- fire
 
-    /// <summary>Per-frame chance of catching fire when next to something hot. 0 = not flammable.</summary>
+    /// <summary>Per-frame chance of catching fire while at or above <see cref="IgnitionTemp"/>. 0 = not flammable.</summary>
     public float Flammability { get; init; }
+
+    /// <summary>Temperature (°C) at which a flammable material can catch fire. Cooling below it puts the fire out.</summary>
+    public float IgnitionTemp { get; init; } = float.PositiveInfinity;
+
+    /// <summary>Degrees a burning cell gains per step from its own combustion.</summary>
+    public float BurnHeat { get; init; }
+
+    /// <summary>Hottest temperature (°C) combustion alone can bring the cell to.</summary>
+    public float BurnTemp { get; init; }
 
     /// <summary>Frames the material burns once lit.</summary>
     public short BurnTicks { get; init; }
@@ -64,21 +73,6 @@ public sealed class MaterialDef
     /// <summary>Per-frame chance that the cell, while burning or hot, emits a flame on its "up" side.</summary>
     public float FlameChance { get; init; }
 
-    /// <summary>
-    /// Hot materials ignite flammable neighbors. Touching an extinguisher quenches them into
-    /// <see cref="QuenchedInto"/>, and the extinguisher boils with this probability.
-    /// </summary>
-    public float Heat { get; init; }
-
-    /// <summary>What a hot material becomes when it touches an extinguisher.</summary>
-    public Mat QuenchedInto { get; init; }
-
-    /// <summary>Puts out fire and quenches hot materials on contact.</summary>
-    public bool Extinguishes { get; init; }
-
-    /// <summary>What an extinguisher turns into when something hot boils it.</summary>
-    public Mat BoilsInto { get; init; }
-
     // ---- heat
 
     /// <summary>Temperature (°C) of a freshly created particle.</summary>
@@ -86,7 +80,8 @@ public sealed class MaterialDef
 
     /// <summary>
     /// How readily heat crosses this material's faces (0..0.4). Contact between two cells uses the
-    /// harmonic mean of both, so an insulator on either side limits the flow.
+    /// geometric mean of both: two insulators barely exchange heat, while a good conductor such as
+    /// water dominates its contact with a poor one such as wood.
     /// </summary>
     public float Conductivity { get; init; }
 
@@ -95,6 +90,37 @@ public sealed class MaterialDef
 
     /// <summary>Per-step fraction by which the cell relaxes toward ambient temperature (the open world as a heat sink).</summary>
     public float AmbientRate { get; init; }
+
+    /// <summary>
+    /// Heat sources pull themselves toward <see cref="SourceTemp"/> by this fraction per step
+    /// (lava stays molten, flames stay hot). 0 = not a source.
+    /// </summary>
+    public float SourceRate { get; init; }
+    public float SourceTemp { get; init; }
+
+    /// <summary>Above this temperature the cell turns into <see cref="HotInto"/> (boiling, melting).</summary>
+    public float HotAbove { get; init; } = float.PositiveInfinity;
+    public Mat HotInto { get; init; }
+
+    /// <summary>
+    /// Latent heat of the hot transition, in degrees of this material. Past the threshold the cell is
+    /// held at it and changes with chance (excess ÷ latent) per step, so on average it absorbs this
+    /// much extra heat first. 0 = changes at once.
+    /// </summary>
+    public float HotLatent { get; init; }
+
+    /// <summary>Below this temperature the cell turns into <see cref="ColdInto"/> (solidifying, freezing, going out).</summary>
+    public float ColdBelow { get; init; } = float.NegativeInfinity;
+    public Mat ColdInto { get; init; }
+
+    /// <summary>Latent heat of the cold transition (see <see cref="HotLatent"/>). 0 = changes at once.</summary>
+    public float ColdLatent { get; init; }
+
+    /// <summary>
+    /// Supplies oxygen: a burning cell only produces heat, throws flames and consumes fuel while it
+    /// touches a cell like this. Smothered fuel keeps smouldering but cools off.
+    /// </summary>
+    public bool SupportsCombustion { get; init; }
 
     // ---- lifetime
 
@@ -124,7 +150,7 @@ public sealed class MaterialDef
     public bool IsLoose => Phase is Phase.Powder or Phase.Liquid or Phase.Gas;
     public bool IsFluid => Phase is Phase.Liquid or Phase.Gas;
     public bool IsFlammable => Flammability > 0f;
-    public bool IsHot => Heat > 0f;
+    public bool IsHeatSource => SourceRate > 0f;
     public bool HasLifetime => LifeMax > 0;
 }
 
@@ -158,7 +184,7 @@ public static class Materials
             new()
             {
                 Id = Mat.Empty, Name = "空", Phase = Phase.Empty, Color = Background,
-                Conductivity = 0.005f, HeatCapacity = 1f, AmbientRate = 0.05f,
+                Conductivity = 0.002f, HeatCapacity = 1f, AmbientRate = 0.05f, SupportsCombustion = true,
             },
             new()
             {
@@ -176,35 +202,37 @@ public static class Materials
             {
                 Id = Mat.Water, Name = "水", Phase = Phase.Liquid, Density = 1f, Dispersion = 5,
                 Conductivity = 0.4f, HeatCapacity = 8f,
-                Extinguishes = true, BoilsInto = Mat.Steam,
+                HotAbove = 100f, HotInto = Mat.Steam, HotLatent = 300f,
                 Color = new Rgb(0.18f, 0.38f, 0.85f), Jitter = 0.04f,
             },
             new()
             {
                 Id = Mat.Wood, Name = "木", Phase = Phase.Solid, Density = 1.2f,
-                Conductivity = 0.1f, HeatCapacity = 1.5f,
-                Flammability = 0.02f, BurnTicks = 180, BurnsInto = Mat.Ash, FlameChance = 0.25f,
+                Conductivity = 0.015f, HeatCapacity = 1.5f,
+                Flammability = 0.05f, IgnitionTemp = 300f, BurnHeat = 14f, BurnTemp = 800f,
+                BurnTicks = 180, BurnsInto = Mat.Ash, FlameChance = 0.25f,
                 Color = new Rgb(0.45f, 0.28f, 0.12f), Jitter = 0.1f,
             },
             new()
             {
                 Id = Mat.Oil, Name = "油", Phase = Phase.Liquid, Density = 0.8f, Dispersion = 3, Fluidity = 0.9f,
                 Conductivity = 0.05f, HeatCapacity = 1f,
-                Flammability = 0.25f, BurnTicks = 45, BurnsInto = Mat.Smoke, FlameChance = 0.4f,
+                Flammability = 0.25f, IgnitionTemp = 200f, BurnHeat = 40f, BurnTemp = 900f,
+                BurnTicks = 45, BurnsInto = Mat.Smoke, FlameChance = 0.4f,
                 Color = new Rgb(0.28f, 0.20f, 0.10f), Jitter = 0.06f,
             },
             new()
             {
                 Id = Mat.Fire, Name = "火", Phase = Phase.Gas, Density = 0.01f, Fluidity = 0.7f,
                 BaseTemp = 900f, Conductivity = 0.25f, HeatCapacity = 1f,
-                Heat = 0.3f, QuenchedInto = Mat.Empty,
+                SourceTemp = 900f, SourceRate = 0.15f, ColdBelow = 400f, ColdInto = Mat.Empty, SupportsCombustion = true,
                 LifeMin = 15, LifeMax = 40, DecayChance = 0.25f, DecaysInto = Mat.Smoke,
                 Color = new Rgb(1f, 0.9f, 0.3f), AgeColor = new Rgb(0.85f, 0.15f, 0.05f), Jitter = 0.1f,
             },
             new()
             {
                 Id = Mat.Smoke, Name = "烟", Phase = Phase.Gas, Density = 0.1f, Fluidity = 0.7f,
-                Conductivity = 0.02f, HeatCapacity = 1f, AmbientRate = 0.02f,
+                Conductivity = 0.02f, HeatCapacity = 1f, AmbientRate = 0.02f, SupportsCombustion = true,
                 LifeMin = 150, LifeMax = 300,
                 Color = new Rgb(0.30f, 0.30f, 0.32f), Jitter = 0.08f, FadesOut = true,
             },
@@ -219,7 +247,7 @@ public static class Materials
             {
                 Id = Mat.Lava, Name = "熔岩", Phase = Phase.Liquid, Density = 2.5f, Dispersion = 2, Fluidity = 0.25f,
                 BaseTemp = 1200f, Conductivity = 0.2f, HeatCapacity = 1f,
-                Heat = 1f, QuenchedInto = Mat.Stone, FlameChance = 0.02f,
+                SourceTemp = 1200f, SourceRate = 0.3f, ColdBelow = 700f, ColdInto = Mat.Stone, FlameChance = 0.02f,
                 Color = new Rgb(0.95f, 0.35f, 0.05f), Jitter = 0.12f,
             },
             new()

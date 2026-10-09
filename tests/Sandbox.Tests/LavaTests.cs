@@ -10,20 +10,24 @@ public class LavaTests
     [Fact]
     public void LavaNextToWaterProducesStoneAndSteam()
     {
-        var w = new World(20, 20, Seed);
-        w.Set(9, 10, Mat.Lava);
-        w.Set(10, 10, Mat.Water);
-        // Hold both in place.
-        w.Fill(8, 11, 11, 11, Mat.Stone);
-        w.Set(8, 10, Mat.Stone);
-        w.Set(11, 10, Mat.Stone);
+        // A lava block against a full water tank, sealed so nothing can move.
+        var w = new World(20, 12, Seed);
+        StoneBox(w, 0, 0, 19, 11);
+        w.Fill(1, 1, 6, 10, Mat.Lava);
+        w.Fill(7, 1, 18, 10, Mat.Water);
 
-        w.Step();
+        int stone = w.Count(Mat.Stone);
 
-        Assert.Equal(Mat.Stone, w.Get(9, 10));
-        Assert.Equal(1, w.Count(Mat.Steam));
-        Assert.Equal(0, w.Count(Mat.Lava));
-        Assert.Equal(0, w.Count(Mat.Water));
+        bool sawSteam = false;
+        for (int i = 0; i < 120; i++)
+        {
+            w.Step();
+            sawSteam |= w.Count(Mat.Steam) > 0;
+        }
+
+        // The water cooled the lava it touches below its solidifying point, and boiled.
+        Assert.True(sawSteam, "water touching lava should boil");
+        Assert.True(w.Count(Mat.Stone) > stone, "lava touching water should harden into stone");
     }
 
     [Fact]
@@ -49,7 +53,8 @@ public class LavaTests
         // may still touch water.
         int quenched = w.Count(Mat.Stone) - 196;
         Assert.Equal(lava, quenched + w.Count(Mat.Lava));
-        Assert.True(quenched > lava / 2, $"only {quenched} of {lava} lava cells turned to stone");
+        // At least enough lava hardens to roof most of the 38-cell-wide pool with a crust.
+        Assert.True(quenched >= 38 * 3 / 4, $"only {quenched} of {lava} lava cells turned to stone");
         foreach (var (x, y) in CellsOf(w, Mat.Lava))
         {
             Assert.DoesNotContain(Mat.Water, new[] { w.Get(x + 1, y), w.Get(x - 1, y), w.Get(x, y + 1), w.Get(x, y - 1) });
