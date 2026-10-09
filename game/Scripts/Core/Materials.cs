@@ -14,6 +14,7 @@ public enum Mat : byte
     Fire,
     Smoke,
     Steam,
+    Lava,
     Ash,
 }
 
@@ -181,6 +182,12 @@ public static class Materials
                 Id = Mat.Steam, Name = "蒸汽", Phase = Phase.Gas, Density = 0.05f, Fluidity = 0.7f,
                 LifeMin = 200, LifeMax = 400, DecayChance = 0.3f, DecaysInto = Mat.Water,
                 Color = new Rgb(0.75f, 0.80f, 0.86f), Jitter = 0.05f, FadesOut = true,
+            },
+            new()
+            {
+                Id = Mat.Lava, Name = "熔岩", Phase = Phase.Liquid, Density = 2.5f, Dispersion = 2, Fluidity = 0.25f,
+                Heat = 1f, QuenchedInto = Mat.Stone, FlameChance = 0.02f,
+                Color = new Rgb(0.95f, 0.35f, 0.05f), Jitter = 0.12f,
             },
             new()
             {
