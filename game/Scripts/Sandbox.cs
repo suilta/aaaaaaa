@@ -8,6 +8,10 @@ public partial class Sandbox : Node2D
 {
     private const int MinBrush = 1;
     private const int MaxBrush = 20;
+    private const int HudFontSize = 15;
+    private const int HudOutline = 4;
+    private const string HudHelpMouse = "左键放置  右键擦除  滚轮调大小";
+    private const string HudHelpKeys = "1石 2沙 3水 4木 5油 6火 7熔岩 8蒸汽   G翻转重力  空格暂停  R重置  C清空";
 
     // Number keys 1..N select these.
     private static readonly Mat[] Palette =
@@ -19,6 +23,7 @@ public partial class Sandbox : Node2D
     private byte[] pixels = null!;
     private Image image = null!;
     private ImageTexture texture = null!;
+    private Font hudFont = null!;
 
     private Mat brush = Mat.Sand;
     private int brushRadius = 4;
@@ -30,6 +35,9 @@ public partial class Sandbox : Node2D
     public override void _Ready()
     {
         world = new World((int)GD.Randi());
+        DemoScene.Build(world);
+        hudFont = new SystemFont { FontNames = new[] { "Microsoft YaHei", "SimHei", "Noto Sans CJK SC" } };
+
         pixels = new byte[world.Width * world.Height * 4];
         world.Render(pixels);
         image = Image.CreateFromData(world.Width, world.Height, false, Image.Format.Rgba8, pixels);
@@ -73,6 +81,11 @@ public partial class Sandbox : Node2D
     private void HandleKey(Key keycode)
     {
         int slot = (int)(keycode - Key.Key1);
+        if (slot < 0 || slot >= Palette.Length)
+        {
+            slot = (int)(keycode - Key.Kp1);
+        }
+
         if (slot >= 0 && slot < Palette.Length)
         {
             brush = Palette[slot];
@@ -86,6 +99,9 @@ public partial class Sandbox : Node2D
                 break;
             case Key.Space:
                 paused = !paused;
+                break;
+            case Key.R:
+                DemoScene.Build(world);
                 break;
             case Key.C:
                 world.Clear();
@@ -125,5 +141,28 @@ public partial class Sandbox : Node2D
         Vector2 cellSize = CellSize;
         Vector2 center = ((Vector2)MouseCell() + new Vector2(0.5f, 0.5f)) * cellSize;
         DrawArc(center, (brushRadius + 0.5f) * cellSize.X, 0f, Mathf.Tau, 48, new Color(1f, 1f, 1f, 0.35f), 1f);
+
+        DrawHud();
+    }
+
+    private void DrawHud()
+    {
+        string gravity = world.Gravity > 0 ? "向下" : "向上";
+        string status = $"画笔：{Materials.Get(brush).Name}   大小：{brushRadius}   重力：{gravity}";
+        if (paused)
+        {
+            status += "   [暂停]";
+        }
+
+        DrawHudLine(0, status);
+        DrawHudLine(1, HudHelpMouse);
+        DrawHudLine(2, HudHelpKeys);
+    }
+
+    private void DrawHudLine(int line, string text)
+    {
+        var pos = new Vector2(10f, 22f + line * 22f);
+        DrawStringOutline(hudFont, pos, text, HorizontalAlignment.Left, -1f, HudFontSize, HudOutline, Colors.Black);
+        DrawString(hudFont, pos, text, HorizontalAlignment.Left, -1f, HudFontSize, Colors.White);
     }
 }
