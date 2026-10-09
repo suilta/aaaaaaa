@@ -13,6 +13,7 @@ public enum Mat : byte
     Oil,
     Fire,
     Smoke,
+    Steam,
     Ash,
 }
 
@@ -147,7 +148,7 @@ public static class Materials
             new()
             {
                 Id = Mat.Water, Name = "水", Phase = Phase.Liquid, Density = 1f, Dispersion = 5,
-                Extinguishes = true, BoilsInto = Mat.Water,
+                Extinguishes = true, BoilsInto = Mat.Steam,
                 Color = new Rgb(0.18f, 0.38f, 0.85f), Jitter = 0.04f,
             },
             new()
@@ -174,6 +175,12 @@ public static class Materials
                 Id = Mat.Smoke, Name = "烟", Phase = Phase.Gas, Density = 0.1f, Fluidity = 0.7f,
                 LifeMin = 150, LifeMax = 300,
                 Color = new Rgb(0.30f, 0.30f, 0.32f), Jitter = 0.08f, FadesOut = true,
+            },
+            new()
+            {
+                Id = Mat.Steam, Name = "蒸汽", Phase = Phase.Gas, Density = 0.05f, Fluidity = 0.7f,
+                LifeMin = 200, LifeMax = 400, DecayChance = 0.3f, DecaysInto = Mat.Water,
+                Color = new Rgb(0.75f, 0.80f, 0.86f), Jitter = 0.05f, FadesOut = true,
             },
             new()
             {
