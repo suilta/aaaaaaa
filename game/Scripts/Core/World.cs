@@ -191,6 +191,19 @@ public sealed class World
     /// <summary>Gravity direction along y: +1 pulls down, -1 pulls up.</summary>
     public int Gravity { get; private set; } = 1;
 
+    /// <summary>Reverses gravity. Every rule is written in terms of <see cref="Gravity"/>, so everything follows.</summary>
+    public void FlipGravity() => Gravity = -Gravity;
+
+    public void SetGravity(int direction)
+    {
+        if (direction != 1 && direction != -1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(direction), "Gravity is +1 (down) or -1 (up).");
+        }
+
+        Gravity = direction;
+    }
+
     public void Step()
     {
         Frame++;

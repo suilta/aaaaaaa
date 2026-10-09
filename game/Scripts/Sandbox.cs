@@ -81,6 +81,9 @@ public partial class Sandbox : Node2D
 
         switch (keycode)
         {
+            case Key.G:
+                world.FlipGravity();
+                break;
             case Key.Space:
                 paused = !paused;
                 break;
