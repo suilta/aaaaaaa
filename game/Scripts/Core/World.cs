@@ -745,6 +745,12 @@ public sealed class World
         }
 
         color = color.Scale(k);
+        if (def.Phase != Phase.Gas && temp[i] > Materials.GlowStart)
+        {
+            float glow = Math.Min(0.85f, (temp[i] - Materials.GlowStart) / Materials.GlowSpan);
+            color = Rgb.Lerp(color, Materials.HeatGlow, glow);
+        }
+
         if (burn[i] > 0)
         {
             // Flicker: hash of cell and frame, so rendering never touches the simulation RNG.

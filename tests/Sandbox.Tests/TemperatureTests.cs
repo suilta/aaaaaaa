@@ -112,6 +112,21 @@ public class TemperatureTests
     }
 
     [Fact]
+    public void HotStoneGlows()
+    {
+        var w = new World(2, 1, Seed);
+        w.Fill(0, 0, 1, 0, Mat.Stone);
+        w.SetTemperature(1, 0, 900f);
+        var rgba = new byte[2 * 4];
+
+        w.Render(rgba);
+
+        int coldRedness = rgba[0] - rgba[2];
+        int hotRedness = rgba[4] - rgba[6];
+        Assert.True(hotRedness > coldRedness + 100, $"hot stone should glow red-orange ({coldRedness} vs {hotRedness})");
+    }
+
+    [Fact]
     public void ThermalViewShowsHeatDifferences()
     {
         var w = new World(3, 1, Seed);

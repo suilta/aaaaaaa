@@ -166,6 +166,13 @@ public static class Materials
 
     public static readonly Rgb Background = new(0.05f, 0.05f, 0.08f);
 
+    /// <summary>Incandescence: hot solids, powders and liquids blend toward this color.</summary>
+    public static readonly Rgb HeatGlow = new(1f, 0.38f, 0.06f);
+
+    /// <summary>Temperature (°C) where things start to glow, and the span over which the glow reaches full strength.</summary>
+    public const float GlowStart = 450f;
+    public const float GlowSpan = 600f;
+
     /// <summary>Color burning cells flicker toward.</summary>
     public static readonly Rgb BurnGlow = new(1f, 0.55f, 0.1f);
 
