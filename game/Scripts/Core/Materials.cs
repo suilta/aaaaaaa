@@ -79,6 +79,23 @@ public sealed class MaterialDef
     /// <summary>What an extinguisher turns into when something hot boils it.</summary>
     public Mat BoilsInto { get; init; }
 
+    // ---- heat
+
+    /// <summary>Temperature (°C) of a freshly created particle.</summary>
+    public float BaseTemp { get; init; } = Materials.AmbientTemp;
+
+    /// <summary>
+    /// How readily heat crosses this material's faces (0..0.4). Contact between two cells uses the
+    /// harmonic mean of both, so an insulator on either side limits the flow.
+    /// </summary>
+    public float Conductivity { get; init; }
+
+    /// <summary>Heat needed per degree (≥ 1). High capacity heats and cools slowly.</summary>
+    public float HeatCapacity { get; init; } = 1f;
+
+    /// <summary>Per-step fraction by which the cell relaxes toward ambient temperature (the open world as a heat sink).</summary>
+    public float AmbientRate { get; init; }
+
     // ---- lifetime
 
     /// <summary>Lifetime range in frames. 0 = permanent. Only gases and fire use it.</summary>
@@ -114,6 +131,12 @@ public sealed class MaterialDef
 /// <summary>The material property table.</summary>
 public static class Materials
 {
+    /// <summary>Temperature (°C) of the open world: air relaxes toward it, new particles default to it.</summary>
+    public const float AmbientTemp = 20f;
+
+    public const float MaxConductivity = 0.4f;
+    public const float MinHeatCapacity = 1f;
+
     public static readonly Rgb Background = new(0.05f, 0.05f, 0.08f);
 
     /// <summary>Color burning cells flicker toward.</summary>
@@ -135,38 +158,45 @@ public static class Materials
             new()
             {
                 Id = Mat.Empty, Name = "空", Phase = Phase.Empty, Color = Background,
+                Conductivity = 0.005f, HeatCapacity = 1f, AmbientRate = 0.05f,
             },
             new()
             {
                 Id = Mat.Stone, Name = "石", Phase = Phase.Solid, Density = 3f,
+                Conductivity = 0.1f, HeatCapacity = 2f,
                 Color = new Rgb(0.42f, 0.42f, 0.47f), Jitter = 0.08f,
             },
             new()
             {
                 Id = Mat.Sand, Name = "沙", Phase = Phase.Powder, Density = 1.6f,
+                Conductivity = 0.05f, HeatCapacity = 1.5f,
                 Color = new Rgb(0.86f, 0.74f, 0.45f), Jitter = 0.1f,
             },
             new()
             {
                 Id = Mat.Water, Name = "水", Phase = Phase.Liquid, Density = 1f, Dispersion = 5,
+                Conductivity = 0.4f, HeatCapacity = 8f,
                 Extinguishes = true, BoilsInto = Mat.Steam,
                 Color = new Rgb(0.18f, 0.38f, 0.85f), Jitter = 0.04f,
             },
             new()
             {
                 Id = Mat.Wood, Name = "木", Phase = Phase.Solid, Density = 1.2f,
+                Conductivity = 0.1f, HeatCapacity = 1.5f,
                 Flammability = 0.02f, BurnTicks = 180, BurnsInto = Mat.Ash, FlameChance = 0.25f,
                 Color = new Rgb(0.45f, 0.28f, 0.12f), Jitter = 0.1f,
             },
             new()
             {
                 Id = Mat.Oil, Name = "油", Phase = Phase.Liquid, Density = 0.8f, Dispersion = 3, Fluidity = 0.9f,
+                Conductivity = 0.05f, HeatCapacity = 1f,
                 Flammability = 0.25f, BurnTicks = 45, BurnsInto = Mat.Smoke, FlameChance = 0.4f,
                 Color = new Rgb(0.28f, 0.20f, 0.10f), Jitter = 0.06f,
             },
             new()
             {
                 Id = Mat.Fire, Name = "火", Phase = Phase.Gas, Density = 0.01f, Fluidity = 0.7f,
+                BaseTemp = 900f, Conductivity = 0.25f, HeatCapacity = 1f,
                 Heat = 0.3f, QuenchedInto = Mat.Empty,
                 LifeMin = 15, LifeMax = 40, DecayChance = 0.25f, DecaysInto = Mat.Smoke,
                 Color = new Rgb(1f, 0.9f, 0.3f), AgeColor = new Rgb(0.85f, 0.15f, 0.05f), Jitter = 0.1f,
@@ -174,24 +204,28 @@ public static class Materials
             new()
             {
                 Id = Mat.Smoke, Name = "烟", Phase = Phase.Gas, Density = 0.1f, Fluidity = 0.7f,
+                Conductivity = 0.02f, HeatCapacity = 1f, AmbientRate = 0.02f,
                 LifeMin = 150, LifeMax = 300,
                 Color = new Rgb(0.30f, 0.30f, 0.32f), Jitter = 0.08f, FadesOut = true,
             },
             new()
             {
                 Id = Mat.Steam, Name = "蒸汽", Phase = Phase.Gas, Density = 0.05f, Fluidity = 0.7f,
+                BaseTemp = 110f, Conductivity = 0.05f, HeatCapacity = 1f, AmbientRate = 0.02f,
                 LifeMin = 200, LifeMax = 400, DecayChance = 0.3f, DecaysInto = Mat.Water,
                 Color = new Rgb(0.75f, 0.80f, 0.86f), Jitter = 0.05f, FadesOut = true,
             },
             new()
             {
                 Id = Mat.Lava, Name = "熔岩", Phase = Phase.Liquid, Density = 2.5f, Dispersion = 2, Fluidity = 0.25f,
+                BaseTemp = 1200f, Conductivity = 0.2f, HeatCapacity = 1f,
                 Heat = 1f, QuenchedInto = Mat.Stone, FlameChance = 0.02f,
                 Color = new Rgb(0.95f, 0.35f, 0.05f), Jitter = 0.12f,
             },
             new()
             {
                 Id = Mat.Ash, Name = "灰", Phase = Phase.Powder, Density = 0.5f,
+                Conductivity = 0.03f, HeatCapacity = 1f,
                 Color = new Rgb(0.35f, 0.33f, 0.32f), Jitter = 0.1f,
             },
         };
@@ -207,6 +241,12 @@ public static class Materials
             if (table[i] == null)
             {
                 throw new InvalidOperationException($"Material {(Mat)i} has no definition.");
+            }
+
+            // Keeps every pairwise heat exchange a contraction (k/capA + k/capB <= 1), so conduction can never overshoot.
+            if (table[i].Conductivity is < 0f or > MaxConductivity || table[i].HeatCapacity < MinHeatCapacity)
+            {
+                throw new InvalidOperationException($"Material {(Mat)i} has out-of-range thermal properties.");
             }
         }
 

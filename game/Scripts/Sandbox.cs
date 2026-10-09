@@ -11,7 +11,7 @@ public partial class Sandbox : Node2D
     private const int HudFontSize = 15;
     private const int HudOutline = 4;
     private const string HudHelpMouse = "左键放置  右键擦除  滚轮调大小";
-    private const string HudHelpKeys = "1石 2沙 3水 4木 5油 6火 7熔岩 8蒸汽   G翻转重力  空格暂停  R重置  C清空";
+    private const string HudHelpKeys = "1石 2沙 3水 4木 5油 6火 7熔岩 8蒸汽   G翻转重力  空格暂停  T温度视图  R重置  C清空";
 
     // Number keys 1..N select these.
     private static readonly Mat[] Palette =
@@ -28,6 +28,7 @@ public partial class Sandbox : Node2D
     private Mat brush = Mat.Sand;
     private int brushRadius = 4;
     private bool paused;
+    private RenderMode renderMode = RenderMode.Normal;
 
     // Last cell the mouse painted at, for interpolating fast strokes. Null when not dragging.
     private Vector2I? lastPaintCell;
@@ -53,7 +54,7 @@ public partial class Sandbox : Node2D
             world.Step();
         }
 
-        world.Render(pixels);
+        world.Render(pixels, renderMode);
         image.SetData(world.Width, world.Height, false, Image.Format.Rgba8, pixels);
         texture.Update(image);
         QueueRedraw();
@@ -99,6 +100,9 @@ public partial class Sandbox : Node2D
                 break;
             case Key.Space:
                 paused = !paused;
+                break;
+            case Key.T:
+                renderMode = renderMode == RenderMode.Normal ? RenderMode.Thermal : RenderMode.Normal;
                 break;
             case Key.R:
                 DemoScene.Build(world);
@@ -152,6 +156,11 @@ public partial class Sandbox : Node2D
         if (paused)
         {
             status += "   [暂停]";
+        }
+
+        if (renderMode == RenderMode.Thermal)
+        {
+            status += "   [温度视图]";
         }
 
         DrawHudLine(0, status);

@@ -23,8 +23,14 @@ public sealed class World
     private readonly short[] burn;
     private readonly byte[] shade;
     private readonly byte[] clock;
+    private readonly float[] temp;
 
     private readonly Rng rng;
+
+    // Per-material thermal properties copied into flat arrays for the conduction hot loop.
+    private static readonly float[] CondOf = BuildTable(d => d.Conductivity);
+    private static readonly float[] InvCapOf = BuildTable(d => 1f / d.HeatCapacity);
+    private static readonly float[] AmbientRateOf = BuildTable(d => d.AmbientRate);
 
     // Stamp written to clock[] for every cell handled this step. Cycles 1..255; 0 means "never".
     private byte stamp;
@@ -44,6 +50,8 @@ public sealed class World
         burn = new short[n];
         shade = new byte[n];
         clock = new byte[n];
+        temp = new float[n];
+        Array.Fill(temp, Materials.AmbientTemp);
         rng = new Rng(seed);
     }
 
@@ -59,6 +67,29 @@ public sealed class World
     public Mat Get(int x, int y) => InBounds(x, y) ? cells[y * Width + x] : Mat.Stone;
 
     public short LifeAt(int x, int y) => life[y * Width + x];
+
+    /// <summary>Temperature (°C) at (x, y). Outside the grid reads as ambient.</summary>
+    public float TemperatureAt(int x, int y) => InBounds(x, y) ? temp[y * Width + x] : Materials.AmbientTemp;
+
+    public void SetTemperature(int x, int y, float celsius)
+    {
+        if (InBounds(x, y))
+        {
+            temp[y * Width + x] = celsius;
+        }
+    }
+
+    /// <summary>Total heat content, sum of capacity × temperature. Conduction alone conserves it.</summary>
+    public double ThermalEnergy()
+    {
+        double e = 0;
+        for (int i = 0; i < cells.Length; i++)
+        {
+            e += (double)temp[i] / InvCapOf[(int)cells[i]];
+        }
+
+        return e;
+    }
 
     public bool IsBurning(int x, int y) => InBounds(x, y) && burn[y * Width + x] > 0;
 
@@ -108,6 +139,7 @@ public sealed class World
         Array.Clear(burn);
         Array.Clear(shade);
         Array.Clear(clock);
+        Array.Fill(temp, Materials.AmbientTemp);
     }
 
     public int Count(Mat m)
@@ -209,6 +241,8 @@ public sealed class World
     {
         Frame++;
         stamp = (byte)(stamp == 255 ? 1 : stamp + 1);
+
+        Conduct();
 
         // Scan from the gravity-side bottom so falling particles move one cell per step
         // without being visited again; the clock stops anything that moves "ahead" of the scan.
@@ -425,6 +459,79 @@ public sealed class World
         clock[i] = stamp;
     }
 
+    // ---------------------------------------------------------------- heat
+
+    /// <summary>
+    /// Exchanges heat across every right and down face once per step, then lets materials with an
+    /// ambient rate (air) relax toward ambient. Each exchange moves both cells toward each other by
+    /// less than their difference, so the pass is stable and, without ambient relaxation, conserves
+    /// total heat.
+    /// </summary>
+    private void Conduct()
+    {
+        int w = Width;
+        for (int y = 0; y < Height; y++)
+        {
+            int row = y * w;
+            for (int x = 0; x < w; x++)
+            {
+                int i = row + x;
+                int mi = (int)cells[i];
+                float ci = CondOf[mi];
+                if (x + 1 < w)
+                {
+                    Exchange(i, i + 1, mi, ci);
+                }
+
+                if (y + 1 < Height)
+                {
+                    Exchange(i, i + w, mi, ci);
+                }
+            }
+        }
+
+        for (int i = 0; i < temp.Length; i++)
+        {
+            float rate = AmbientRateOf[(int)cells[i]];
+            if (rate > 0f)
+            {
+                temp[i] += (Materials.AmbientTemp - temp[i]) * rate;
+            }
+        }
+    }
+
+    private void Exchange(int i, int j, int mi, float ci)
+    {
+        float diff = temp[i] - temp[j];
+        if (diff is > -0.01f and < 0.01f)
+        {
+            return;
+        }
+
+        int mj = (int)cells[j];
+        float cj = CondOf[mj];
+        float sum = ci + cj;
+        if (sum <= 0f)
+        {
+            return;
+        }
+
+        float q = 2f * ci * cj / sum * diff; // harmonic-mean conductance
+        temp[i] -= q * InvCapOf[mi];
+        temp[j] += q * InvCapOf[mj];
+    }
+
+    private static float[] BuildTable(Func<MaterialDef, float> f)
+    {
+        var table = new float[Materials.Count];
+        for (int m = 0; m < table.Length; m++)
+        {
+            table[m] = f(Materials.Get((Mat)m));
+        }
+
+        return table;
+    }
+
     // ---------------------------------------------------------------- movement
 
     /// <summary>Straight down, then a random diagonal, then the other diagonal ("down" = y + g).</summary>
@@ -550,6 +657,7 @@ public sealed class World
         (life[i], life[j]) = (life[j], life[i]);
         (burn[i], burn[j]) = (burn[j], burn[i]);
         (shade[i], shade[j]) = (shade[j], shade[i]);
+        (temp[i], temp[j]) = (temp[j], temp[i]);
         clock[i] = stamp;
         clock[j] = stamp;
     }
@@ -557,7 +665,7 @@ public sealed class World
     // ---------------------------------------------------------------- rendering
 
     /// <summary>Writes the grid as RGBA8, 4 bytes per cell, row-major.</summary>
-    public void Render(byte[] rgba)
+    public void Render(byte[] rgba, RenderMode mode = RenderMode.Normal)
     {
         if (rgba.Length < cells.Length * 4)
         {
@@ -566,8 +674,41 @@ public sealed class World
 
         for (int i = 0; i < cells.Length; i++)
         {
-            CellColor(i).WriteRgba(rgba, i * 4);
+            Rgb c = mode == RenderMode.Thermal ? ThermalColor(temp[i]) : CellColor(i);
+            c.WriteRgba(rgba, i * 4);
         }
+    }
+
+    // Thermal view ramp: cold blue, ambient near-black, then red, orange, yellow, white-hot.
+    private static readonly (float T, Rgb C)[] ThermalRamp =
+    {
+        (-40f, new Rgb(0.55f, 0.75f, 1f)),
+        (0f, new Rgb(0.10f, 0.25f, 0.70f)),
+        (Materials.AmbientTemp, new Rgb(0.04f, 0.04f, 0.08f)),
+        (100f, new Rgb(0.55f, 0.05f, 0.35f)),
+        (300f, new Rgb(0.90f, 0.15f, 0.05f)),
+        (700f, new Rgb(1f, 0.60f, 0.05f)),
+        (1200f, new Rgb(1f, 1f, 0.85f)),
+    };
+
+    public static Rgb ThermalColor(float t)
+    {
+        if (t <= ThermalRamp[0].T)
+        {
+            return ThermalRamp[0].C;
+        }
+
+        for (int k = 1; k < ThermalRamp.Length; k++)
+        {
+            if (t <= ThermalRamp[k].T)
+            {
+                var (t0, c0) = ThermalRamp[k - 1];
+                var (t1, c1) = ThermalRamp[k];
+                return Rgb.Lerp(c0, c1, (t - t0) / (t1 - t0));
+            }
+        }
+
+        return ThermalRamp[^1].C;
     }
 
     private Rgb CellColor(int i)
@@ -613,15 +754,25 @@ public sealed class World
 
     // ---------------------------------------------------------------- internals
 
-    /// <summary>Puts a brand-new particle into cell i: fresh shade, lifetime and no fire.</summary>
+    /// <summary>Puts a brand-new particle into cell i: fresh shade, lifetime, base temperature and no fire.</summary>
     private void Create(int i, Mat m)
     {
         var def = Materials.Get(m);
         cells[i] = m;
+        temp[i] = def.BaseTemp;
         burn[i] = 0;
         shade[i] = (byte)rng.Next(256);
         life[i] = def.HasLifetime ? (short)rng.Range(def.LifeMin, def.LifeMax) : (short)0;
     }
+}
+
+public enum RenderMode
+{
+    /// <summary>Material colors.</summary>
+    Normal,
+
+    /// <summary>Heat map of every cell's temperature.</summary>
+    Thermal,
 }
 
 /// <summary>Small deterministic xorshift RNG; faster than System.Random and seedable for tests.</summary>
